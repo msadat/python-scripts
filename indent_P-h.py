@@ -40,10 +40,10 @@ for i in range(len(data)):
 print "Hardness, H = ", np.max(final_data[:,1])*1e-18/(area*(1e-10)**2), " GPa"
 
 #find slope of unloading curve
-slope = (final_data[len(final_data)/2,1] - final_data[(len(final_data)/2)+10,1]) / (final_data[(len(final_data)/2)+10,0] - final_data[len(final_data)/2,0]) #nN/A
+slope = (final_data[len(final_data)/2,1] - final_data[(len(final_data)/2)+5,1]) / (final_data[len(final_data)/2,0] - final_data[(len(final_data)/2)+5,0]) #nN/A
 E_eff = slope*1e-18 / (2*(2**0.5)*radius*(1e-10)**2)  #GPa
-E = (1-v**2)*Ei*E_eff / (E_eff*(1-vi**2)-Ei)
-
+E = -(1-v**2)*Ei*E_eff / (E_eff*(1-vi**2)-Ei)
+print slope
 print "Young's modulus, E = ", E , " GPa"
                                        
 plt.plot(final_data[:,0],final_data[:,1])
@@ -52,3 +52,5 @@ plt.ylabel('Force (nN)')
 plt.show()
 
 np.savetxt(outfile, np.c_[final_data[:,0],final_data[:,1]])
+
+
