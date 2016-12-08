@@ -1,6 +1,5 @@
 
-#this script will add -OH group to the undercoordinated Si and Al atoms on the surface of indentation
-#motivation for this script is to conduct MD simulation of nanoindentation of geopolymer and study the effect of -OH on surface
+#this script will add -OH group to the undercoordinated Si and Al atoms on the surface 
 
 def Chargebalance(x):
     """x is the array of x y z coordinates with the atom type column."""
