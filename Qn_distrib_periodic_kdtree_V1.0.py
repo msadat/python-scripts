@@ -9,21 +9,21 @@ import numpy as np
 import glob
 import time
 
-outputfile = 'GP2C2'
-natoms_GBP = 1400
+outputfile = 'silica'
+natoms_GBP = 17496
     
 start_time = time.time()    
-filename = 'data.GP2C2-npt-Eq'
+filename = 'data.Silica-Eq'
 
 flist = glob.glob(filename)
 
 for f in flist:
-    load = np.genfromtxt(f, dtype=float, skip_header=19, skip_footer=natoms_GBP+1, usecols=(4,5,6))
+    load = np.genfromtxt(f, dtype=float, skip_header=20, skip_footer=natoms_GBP+1, usecols=(4,5,6))
     #load = np.genfromtxt(f, dtype=float, skip_header=18, usecols=(4,5,6))
 x=np.array(load)
 
 for f in flist: #read the finally written lammps data file to make the neighborlist
-    load = np.genfromtxt(f, dtype=int, skip_header=19, skip_footer=natoms_GBP+1, usecols=(0,2)) #only need the serial and atom type col
+    load = np.genfromtxt(f, dtype=int, skip_header=20, skip_footer=natoms_GBP+1, usecols=(0,2)) #only need the serial and atom type col
     #load = np.genfromtxt(f, skip_header=18, usecols=(0,2))
 y=np.array(load)
 
@@ -200,6 +200,7 @@ def Qn_distrib(SiAlID, OID, Otype):
     Q1 = 0
     Q0 = 0
     Q5 = 0
+    Q6 = 0
     
     SiAl_full = []
     O_full = []
@@ -257,11 +258,11 @@ def Qn_distrib(SiAlID, OID, Otype):
     #O_full is the list of O neighbors where the first two is the O itself followed by it's neighbors
     #print O_full
     for i in range(len(SiAl_full)):
-        
+        count = 0 
         for j in range(2,len(SiAl_full[i])):
-          count = 0
+          
           for k in range(len(Obridging)):  
-
+             #  
              if SiAl_full[i][j] == Obridging[k]:                 
                count +=1
              else:
@@ -278,15 +279,18 @@ def Qn_distrib(SiAlID, OID, Otype):
              Q0 +=1
         elif count == 5:
              Q5 +=1 
+        elif count == 6:
+             Q6 +=1
           
-    return Q5, Q4, Q3, Q2, Q1, Q0
+    return Q6, Q5, Q4, Q3, Q2, Q1, Q0
 
 
 #SiAllist, Olist = Qn_distrib('Nlist-ID_Si_Al-GP2C2', 'Nlist-ID_O-GP2C2')
-Q5, Q4, Q3, Q2, Q1, Q0 = Qn_distrib('Nlist-ID_Si_Al-GP2C2', 'Nlist-ID_O-GP2C2', 'Nlist-type_O-GP2C2')
+Q6, Q5, Q4, Q3, Q2, Q1, Q0 = Qn_distrib('Nlist-ID_Si_Al-'+outputfile, 'Nlist-ID_O-'+outputfile, 'Nlist-type_O-'+outputfile)
 #print SiAllist
 #print Olist
-print Q5, Q4, Q3, Q2, Q1, Q0
+print "Q6 Q5 Q4 Q3 Q2 Q1 Q0: "
+print Q6, Q5, Q4, Q3, Q2, Q1, Q0
 
 print "All done!"
 print("--- %s seconds ---" % (time.time() - start_time)) 
