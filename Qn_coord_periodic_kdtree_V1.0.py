@@ -399,7 +399,7 @@ Q6, Q5, Q4, Q3, Q2, Q1, Q0 = Qn_distrib('Nlist-ID_Si_Al-'+outputfile, 'Nlist-ID_
 
 Al4, Si4 = coord('Nlist-types-GP-NaAl1.0', filename)
 Qlist = [Q6, Q5, Q4, Q3, Q2, Q1, Q0]
-print sum(Qlist)
+print sum(Qlist), Q6*100/total, Q5*100/total, Q4*100/total, Q3*100/total, Q2*100/total, Q1*100/total, Q0*100/total
 def outputwrite(outfilename):
         
         outFile = open('GB-coord-Qn-'+outfilename+'.dat', 'a')
