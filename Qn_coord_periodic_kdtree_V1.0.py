@@ -1,5 +1,6 @@
 #this python script first creates a neighborlist of atoms using Periodic CKDTree search
 #next one can get the Qn distribution of a Si-O-Al network or Si-O-Si network using this script
+#this version can also find the coordination of Si and Al and NBO statistics
 #Author: Mohammad Rafat Sadat, Dept. of CEEM University of Arizona
 #Date: 3.31.17
 
