@@ -231,7 +231,7 @@ def Qn_distrib(SiAlID, OID, Otype):
             
             if Otype_full[i][j] == 1 or Otype_full[i][j] == 2: 
               bridgeO +=1
-              if bridgeO >=2:  
+              if bridgeO == 2:  
                 Obridging.append(Otype_full[i][0])
               else:
                 Obridging = Obridging  
@@ -384,33 +384,11 @@ def coord(fname, datafile):
     print "Si/Al ratio=", SiAl
     print "Na/Al ratio=",NaAl
 
-    #print "***********coordination status of Al***********" 
-    #print "Al(6): = ", len(Al6)
-    #print "%Al(6): = ", len(Al6)*100.0/nAl
-    #print "Al(5): = ", len(Al5)
-    #print "%Al(5): = ", len(Al5)*100.0/nAl
-    #print "Al(4): = ",len(Al4)
+
     print "%Al(4): = ", len(Al4)*100.0/nAl       
-    #print "Al(3): = ",len(Al3)
-    #print "%Al(3): = ", len(Al3)*100.0/nAl
-    #print "Al(2): = ",len(Al2)
-    #print "%Al(2): = ", len(Al2)*100.0/nAl
-    #print "Total Al: = ", len(Al6)+len(Al5)+len(Al4)+len(Al3)+len(Al2)
-    #print "***************coordination status of Si**************************"
-    #print "Si(6): = ",len(Si6)
-    #print "%Si(6): = ", len(Si6)*100.0/nSi  
-    #print "Si(5): = ",len(Si5)
-    #print "%Si(5): = ", len(Si5)*100.0/nSi 
-    #print "Si(4): = ",len(Si4)
+
     print "%Si(4): = ", len(Si4)*100.0/nSi        
-    #print "Si(3): = ",len(Si3)
-    #print "%Si(3): = ", len(Si3)*100.0/nSi        
-    #print "Si(2): = ",len(Si2)
-    #print "%Si(2): = ", len(Si2)*100.0/nSi
-    #print "Si(1): = ",len(Si1)
-    #print "%Si(1): = ", len(Si1)*100.0/nSi
-    #print "Total Si: = ", len(Si6)+len(Si5)+len(Si4)+len(Si3)+len(Si2)+len(Si1)
-    #print "NBOs: = ",len(NBOs)
+
     print "%NBOs: = ", len(NBOs)*100.0/nO
 
     
@@ -419,7 +397,8 @@ def coord(fname, datafile):
 Q6, Q5, Q4, Q3, Q2, Q1, Q0 = Qn_distrib('Nlist-ID_Si_Al-'+outputfile, 'Nlist-ID_O-'+outputfile, 'Nlist-type_O-'+outputfile)
 
 Al4, Si4 = coord('Nlist-types-GP-NaAl1.0', filename)
-
+Qlist = [Q6, Q5, Q4, Q3, Q2, Q1, Q0]
+print sum(Qlist)
 def outputwrite(outfilename):
         
         outFile = open('GB-coord-Qn-'+outfilename+'.dat', 'a')
