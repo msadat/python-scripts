@@ -52,7 +52,7 @@ for s in range(nsnaps):
  outFile.write('ITEM: NUMBER OF ATOMS \n')
  outFile.write('%i \n' %(natoms_new))
  outFile.write('ITEM: BOX BOUNDS pp pp pp \n')
- outFile.write('%f %f \n' %(xlo, xhi))
+ outFile.write('%f %f \n' %(xlo-0.005*s, xhi+0.005*s))
  outFile.write('%f %f \n' %(ylo, yhi))
  outFile.write('%f %f \n' %(zlo, zhi))
  outFile.write('ITEM: ATOMS id type xs ys zs \n')
