@@ -41,7 +41,7 @@ ylo = 4.284e-1 #5.0795e-1 #5.7174e-1 #8.7306e-2
 yhi = 8.919599e1 #8.904e1 #8.877e1 #8.82078e1
 zlo = 4.1064e-1 #6.53536e-1 #1.3324855 #1.426e-1
 zhi = 8.92e1 #8.888e1 #8.8e1 #8.7307e1
-
+init_length = abs(xhi-xlo)
 outFile = open('dump.GPCSH2.0_deleted', 'w')
 
 for s in range(nsnaps):
@@ -52,7 +52,7 @@ for s in range(nsnaps):
  outFile.write('ITEM: NUMBER OF ATOMS \n')
  outFile.write('%i \n' %(natoms_new))
  outFile.write('ITEM: BOX BOUNDS pp pp pp \n')
- outFile.write('%f %f \n' %(xlo-0.005*s, xhi+0.005*s))
+ outFile.write('%f %f \n' %(xlo-0.005*s*init_length, xhi+0.005*s*init_length))
  outFile.write('%f %f \n' %(ylo, yhi))
  outFile.write('%f %f \n' %(zlo, zhi))
  outFile.write('ITEM: ATOMS id type xs ys zs \n')
