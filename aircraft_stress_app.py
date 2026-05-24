@@ -5,21 +5,17 @@ import plotly.express as px
 from math import pi, sqrt
 
 
-st.set_page_config(
-    page_title="Aircraft Pavement Stress Calculator",
-    layout="wide"
-)
+st.set_page_config(page_title="Aircraft Pavement Stress Calculator", layout="wide")
 
 st.title("Aircraft Pavement Stress Calculator")
 st.write(
-    "Estimate vertical stress below pavement at different depths using "
-    "simplified Boussinesq point-load superposition from individual aircraft wheel loads."
+    "Estimate vertical stress below pavement using individual aircraft wheel loads, "
+    "finite tire contact area, and stress bulb superposition."
 )
 
 
 AIRCRAFT_DATA = {
     "Boeing 737-800": {
-        "description": "Simplified dual-wheel main gear aircraft",
         "main_gear_load_lb": 130000,
         "tire_pressure_psi": 200,
         "wheel_coordinates_ft": [
@@ -27,9 +23,7 @@ AIRCRAFT_DATA = {
             (-3.0, 3.0), (-3.0, 5.0),
         ],
     },
-
     "Airbus A321": {
-        "description": "Simplified dual-wheel main gear aircraft",
         "main_gear_load_lb": 150000,
         "tire_pressure_psi": 210,
         "wheel_coordinates_ft": [
@@ -37,43 +31,29 @@ AIRCRAFT_DATA = {
             (-3.0, 3.0), (-3.0, 5.0),
         ],
     },
-
     "Boeing 777-300ER": {
-        "description": "Two 6-wheel main landing gear trucks, 12 main gear wheels total",
         "main_gear_load_lb": 550000,
         "tire_pressure_psi": 221,
         "wheel_coordinates_ft": [
-            # Left main gear truck, 6 wheels
             (-6.0, -10.0), (-6.0, -8.0),
             (0.0, -10.0), (0.0, -8.0),
             (6.0, -10.0), (6.0, -8.0),
-
-            # Right main gear truck, 6 wheels
             (-6.0, 8.0), (-6.0, 10.0),
             (0.0, 8.0), (0.0, 10.0),
             (6.0, 8.0), (6.0, 10.0),
         ],
     },
-
     "Airbus A380-800": {
-        "description": "Simplified 20-wheel main landing gear configuration",
         "main_gear_load_lb": 900000,
         "tire_pressure_psi": 220,
         "wheel_coordinates_ft": [
-            # Left wing gear, 4 wheels
             (-6.0, -20.0), (-6.0, -18.0),
             (-2.0, -20.0), (-2.0, -18.0),
-
-            # Right wing gear, 4 wheels
             (-6.0, 18.0), (-6.0, 20.0),
             (-2.0, 18.0), (-2.0, 20.0),
-
-            # Left body gear, 6 wheels
             (4.0, -5.0), (4.0, -3.0),
             (8.0, -5.0), (8.0, -3.0),
             (12.0, -5.0), (12.0, -3.0),
-
-            # Right body gear, 6 wheels
             (4.0, 3.0), (4.0, 5.0),
             (8.0, 3.0), (8.0, 5.0),
             (12.0, 3.0), (12.0, 5.0),
@@ -82,74 +62,95 @@ AIRCRAFT_DATA = {
 }
 
 
-def boussinesq_vertical_stress_psf(Q_lb, x_ft, y_ft, z_ft):
+def circular_loaded_area_stress_psf(q_psf, radius_ft, x_ft, y_ft, z_ft):
     """
-    Vertical stress beneath a point load using Boussinesq equation.
+    Approximate vertical stress from a uniformly loaded circular tire contact area.
 
-    sigma_z = 3Qz^3 / (2πR^5)
+    For directly beneath the center:
+    sigma_z = q * [1 - 1 / (1 + (a/z)^2)^(3/2)]
 
-    Q = individual wheel load, lb
-    x = horizontal x-offset from wheel, ft
-    y = horizontal y-offset from wheel, ft
-    z = depth below pavement surface, ft
+    For off-center points, this uses an equivalent radial distance correction:
+    z_eff = sqrt(z^2 + r^2)
 
-    Output = vertical stress, psf
+    This is an educational approximation, not layered elastic pavement design.
     """
 
-    R = sqrt(x_ft**2 + y_ft**2 + z_ft**2)
+    r_ft = sqrt(x_ft**2 + y_ft**2)
+    z_eff = sqrt(z_ft**2 + r_ft**2)
 
-    if R == 0:
-        return 0.0
+    if z_eff <= 0:
+        return q_psf
 
-    sigma_z = (3 * Q_lb * z_ft**3) / (2 * pi * R**5)
+    stress = q_psf * (
+        1 - 1 / ((1 + (radius_ft / z_eff) ** 2) ** 1.5)
+    )
 
-    return sigma_z
+    return stress
 
 
-def total_stress_at_depth(
+def calculate_wheel_stresses(
     wheel_load_lb,
+    tire_pressure_psi,
     wheel_coordinates_ft,
-    z_ft,
-    analysis_x_ft=0.0,
-    analysis_y_ft=0.0,
+    depths_ft,
+    analysis_x_ft,
+    analysis_y_ft,
 ):
-    """
-    Sum vertical stress contributions from each individual wheel.
-    This is not a lumped aircraft load.
-    """
+    tire_pressure_psf = tire_pressure_psi * 144.0
 
-    total_stress = 0.0
+    contact_area_sq_in = wheel_load_lb / tire_pressure_psi
+    contact_area_sq_ft = contact_area_sq_in / 144.0
+    contact_radius_ft = sqrt(contact_area_sq_ft / pi)
 
-    for x_wheel, y_wheel in wheel_coordinates_ft:
-        x_offset = analysis_x_ft - x_wheel
-        y_offset = analysis_y_ft - y_wheel
+    rows = []
 
-        stress_from_wheel = boussinesq_vertical_stress_psf(
-            wheel_load_lb,
-            x_offset,
-            y_offset,
-            z_ft,
-        )
+    for z in depths_ft:
+        total_stress = 0.0
 
-        total_stress += stress_from_wheel
+        for i, (x_wheel, y_wheel) in enumerate(wheel_coordinates_ft, start=1):
+            x_offset = analysis_x_ft - x_wheel
+            y_offset = analysis_y_ft - y_wheel
 
-    return total_stress
+            stress_psf = circular_loaded_area_stress_psf(
+                tire_pressure_psf,
+                contact_radius_ft,
+                x_offset,
+                y_offset,
+                z,
+            )
+
+            total_stress += stress_psf
+
+            rows.append({
+                "Depth Below Pavement (ft)": z,
+                "Wheel": f"Wheel {i}",
+                "Stress Contribution (psf)": stress_psf,
+                "Stress Contribution (psi)": stress_psf / 144.0,
+                "X Wheel Coordinate (ft)": x_wheel,
+                "Y Wheel Coordinate (ft)": y_wheel,
+            })
+
+        rows.append({
+            "Depth Below Pavement (ft)": z,
+            "Wheel": "Total Combined Stress",
+            "Stress Contribution (psf)": total_stress,
+            "Stress Contribution (psi)": total_stress / 144.0,
+            "X Wheel Coordinate (ft)": None,
+            "Y Wheel Coordinate (ft)": None,
+        })
+
+    return pd.DataFrame(rows), contact_area_sq_in, contact_radius_ft
 
 
 st.sidebar.header("Aircraft Selection")
 
-aircraft = st.sidebar.selectbox(
-    "Select Aircraft",
-    list(AIRCRAFT_DATA.keys())
-)
-
+aircraft = st.sidebar.selectbox("Select Aircraft", list(AIRCRAFT_DATA.keys()))
 data = AIRCRAFT_DATA[aircraft]
+
 wheel_coordinates = data["wheel_coordinates_ft"]
 number_of_wheels = len(wheel_coordinates)
 
-st.sidebar.caption(data["description"])
-
-st.sidebar.header("Load Assumptions")
+st.sidebar.header("Load Inputs")
 
 total_main_gear_load = st.sidebar.number_input(
     "Total Modeled Main Gear Load (lb)",
@@ -162,21 +163,14 @@ equalized_wheel_load = total_main_gear_load / number_of_wheels
 
 load_method = st.sidebar.radio(
     "Wheel Load Method",
-    [
-        "Equal load per main gear tire",
-        "User-defined individual tire load",
-    ],
+    ["Equal load per tire", "User-defined tire load"],
 )
 
-if load_method == "Equal load per main gear tire":
+if load_method == "Equal load per tire":
     wheel_load = equalized_wheel_load
-    st.sidebar.info(
-        f"Wheel load = {total_main_gear_load:,.0f} lb / "
-        f"{number_of_wheels} wheels = {wheel_load:,.0f} lb per tire"
-    )
 else:
     wheel_load = st.sidebar.number_input(
-        "Individual Tire/Wheel Load (lb)",
+        "Individual Tire Load (lb)",
         min_value=100.0,
         value=float(equalized_wheel_load),
         step=500.0,
@@ -189,10 +183,10 @@ tire_pressure = st.sidebar.number_input(
     step=5.0,
 )
 
-st.sidebar.header("Depth and Analysis Location")
+st.sidebar.header("Analysis Settings")
 
 max_depth = st.sidebar.number_input(
-    "Maximum Depth Below Pavement (ft)",
+    "Maximum Depth (ft)",
     min_value=1.0,
     value=25.0,
     step=1.0,
@@ -218,104 +212,162 @@ analysis_y = st.sidebar.number_input(
 )
 
 
-depths = np.arange(
-    depth_increment,
-    max_depth + depth_increment,
-    depth_increment,
+depths = np.arange(depth_increment, max_depth + depth_increment, depth_increment)
+
+stress_df, contact_area_sq_in, contact_radius_ft = calculate_wheel_stresses(
+    wheel_load,
+    tire_pressure,
+    wheel_coordinates,
+    depths,
+    analysis_x,
+    analysis_y,
 )
 
-stress_values_psf = [
-    total_stress_at_depth(
-        wheel_load,
-        wheel_coordinates,
-        z,
-        analysis_x,
-        analysis_y,
-    )
-    for z in depths
-]
+total_df = stress_df[stress_df["Wheel"] == "Total Combined Stress"]
+individual_df = stress_df[stress_df["Wheel"] != "Total Combined Stress"]
 
-stress_values_psi = [stress / 144.0 for stress in stress_values_psf]
-
-df = pd.DataFrame({
-    "Depth Below Pavement (ft)": depths,
-    "Vertical Stress (psf)": stress_values_psf,
-    "Vertical Stress (psi)": stress_values_psi,
-})
-
-contact_area_sq_in = wheel_load / tire_pressure
-equivalent_contact_radius_in = sqrt(contact_area_sq_in / pi)
-equivalent_contact_diameter_in = equivalent_contact_radius_in * 2
+contact_radius_in = contact_radius_ft * 12.0
+contact_diameter_in = contact_radius_in * 2.0
 
 
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Selected Aircraft", aircraft)
-col2.metric("Main Gear Wheels Modeled", number_of_wheels)
-col3.metric("Individual Wheel Load", f"{wheel_load:,.0f} lb")
+col1.metric("Aircraft", aircraft)
+col2.metric("Main Gear Wheels", number_of_wheels)
+col3.metric("Individual Tire Load", f"{wheel_load:,.0f} lb")
 col4.metric("Tire Pressure", f"{tire_pressure:,.0f} psi")
 
 
-st.subheader("Load Distribution Method")
+st.subheader("Tire Contact Area")
 
 st.write(
-    f"The model applies **{wheel_load:,.0f} lb** to each of the "
-    f"**{number_of_wheels} individual main gear wheels**. "
-    "Vertical stress is calculated separately for each wheel and then summed "
-    "at the selected analysis point and depth."
+    f"Each tire is modeled as a finite circular loaded area, not a point load.  \n"
+    f"Approximate tire contact area = **{contact_area_sq_in:,.1f} in²**  \n"
+    f"Equivalent contact radius = **{contact_radius_in:,.1f} in**  \n"
+    f"Equivalent contact diameter = **{contact_diameter_in:,.1f} in**"
 )
 
 
-st.subheader("Estimated Tire Contact Area")
+st.subheader("Combined Vertical Stress vs Depth")
 
-st.write(
-    f"Approximate single-tire contact area = **{contact_area_sq_in:,.1f} in²**  \n"
-    f"Equivalent circular contact radius = **{equivalent_contact_radius_in:,.1f} in**  \n"
-    f"Equivalent circular contact diameter = **{equivalent_contact_diameter_in:,.1f} in**"
-)
-
-
-st.subheader("Vertical Stress vs Depth")
-
-fig = px.line(
-    df,
+fig_total = px.line(
+    total_df,
     x="Depth Below Pavement (ft)",
-    y="Vertical Stress (psf)",
+    y="Stress Contribution (psf)",
     markers=True,
-    title=f"Estimated Vertical Stress Below Pavement - {aircraft}",
+    title=f"Combined Stress Below Pavement - {aircraft}",
 )
 
-fig.update_layout(
+fig_total.update_layout(
+    xaxis_title="Depth Below Pavement (ft)",
+    yaxis_title="Combined Vertical Stress (psf)",
+)
+
+st.plotly_chart(fig_total, use_container_width=True)
+
+
+st.subheader("Individual Wheel Stress Contributions and Overlap")
+
+fig_overlap = px.line(
+    stress_df,
+    x="Depth Below Pavement (ft)",
+    y="Stress Contribution (psf)",
+    color="Wheel",
+    title="Stress Contributions from Individual Wheels plus Total Combined Stress",
+)
+
+fig_overlap.update_layout(
     xaxis_title="Depth Below Pavement (ft)",
     yaxis_title="Vertical Stress (psf)",
 )
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_overlap, use_container_width=True)
 
 
-st.subheader("Vertical Stress Table")
+st.subheader("Stress Bulb Interaction at Selected Depth")
 
-st.dataframe(
-    df.style.format({
-        "Depth Below Pavement (ft)": "{:.2f}",
-        "Vertical Stress (psf)": "{:,.1f}",
-        "Vertical Stress (psi)": "{:,.2f}",
-    }),
-    use_container_width=True,
+selected_depth = st.slider(
+    "Select Depth for Plan-View Stress Bulb Map (ft)",
+    min_value=float(depth_increment),
+    max_value=float(max_depth),
+    value=min(5.0, float(max_depth)),
+    step=float(depth_increment),
 )
 
+grid_range = st.slider(
+    "Plan View Grid Extent (ft)",
+    min_value=10,
+    max_value=80,
+    value=40,
+    step=5,
+)
 
-st.subheader("Simplified Main Gear Wheel Layout")
+x_grid = np.linspace(-grid_range, grid_range, 80)
+y_grid = np.linspace(-grid_range, grid_range, 80)
 
-layout_df = pd.DataFrame(
+grid_rows = []
+
+for x in x_grid:
+    for y in y_grid:
+        total_stress = 0.0
+
+        for x_wheel, y_wheel in wheel_coordinates:
+            x_offset = x - x_wheel
+            y_offset = y - y_wheel
+
+            stress_psf = circular_loaded_area_stress_psf(
+                tire_pressure * 144.0,
+                contact_radius_ft,
+                x_offset,
+                y_offset,
+                selected_depth,
+            )
+
+            total_stress += stress_psf
+
+        grid_rows.append({
+            "X (ft)": x,
+            "Y (ft)": y,
+            "Stress (psf)": total_stress,
+        })
+
+grid_df = pd.DataFrame(grid_rows)
+
+fig_contour = px.density_heatmap(
+    grid_df,
+    x="X (ft)",
+    y="Y (ft)",
+    z="Stress (psf)",
+    nbinsx=80,
+    nbinsy=80,
+    title=f"Plan-View Combined Stress Bulb at {selected_depth:.1f} ft Depth",
+)
+
+wheel_df = pd.DataFrame(
     wheel_coordinates,
-    columns=["X Coordinate (ft)", "Y Coordinate (ft)"]
+    columns=["X (ft)", "Y (ft)"]
 )
+
+fig_wheels = px.scatter(
+    wheel_df,
+    x="X (ft)",
+    y="Y (ft)",
+)
+
+for trace in fig_wheels.data:
+    fig_contour.add_trace(trace)
+
+fig_contour.update_yaxes(scaleanchor="x", scaleratio=1)
+
+st.plotly_chart(fig_contour, use_container_width=True)
+
+
+st.subheader("Simplified Main Gear Layout")
 
 fig_layout = px.scatter(
-    layout_df,
-    x="X Coordinate (ft)",
-    y="Y Coordinate (ft)",
+    wheel_df,
+    x="X (ft)",
+    y="Y (ft)",
     title=f"Simplified Main Gear Wheel Layout - {aircraft}",
 )
 
@@ -325,17 +377,30 @@ fig_layout.update_yaxes(scaleanchor="x", scaleratio=1)
 st.plotly_chart(fig_layout, use_container_width=True)
 
 
-st.subheader("Wheel Coordinate Table")
+st.subheader("Combined Stress Table")
+
+display_total_df = total_df[[
+    "Depth Below Pavement (ft)",
+    "Stress Contribution (psf)",
+    "Stress Contribution (psi)",
+]].rename(columns={
+    "Stress Contribution (psf)": "Combined Vertical Stress (psf)",
+    "Stress Contribution (psi)": "Combined Vertical Stress (psi)",
+})
 
 st.dataframe(
-    layout_df,
+    display_total_df.style.format({
+        "Depth Below Pavement (ft)": "{:.2f}",
+        "Combined Vertical Stress (psf)": "{:,.1f}",
+        "Combined Vertical Stress (psi)": "{:,.2f}",
+    }),
     use_container_width=True,
 )
 
 
 st.warning(
-    "Engineering note: This educational tool uses Boussinesq point-load "
-    "superposition from individual wheel loads. It does not model layered elastic "
-    "pavement response, tire contact pressure distribution, gear wander, "
-    "load repetition, pass-to-coverage ratio, or FAARFIELD design methodology."
+    "Engineering note: This is an educational approximation. It models each aircraft tire "
+    "as a finite circular loaded area and sums stress contributions from all wheels. "
+    "It does not replace layered elastic analysis, FAARFIELD, gear wander analysis, "
+    "pass-to-coverage calculation, or aircraft manufacturer pavement design data."
 )
