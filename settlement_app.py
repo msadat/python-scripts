@@ -238,4 +238,4 @@ if __name__ == "__main__":
             f"Settlement = {row['settlement_in']:.2f} in"
         )
 
-    plot_stress_sensitivity(sensitivity_results)
+    #plot_stress_sensitivity(sensitivity_results)
