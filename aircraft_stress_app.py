@@ -1,3 +1,10 @@
+Here is the full revised code. This version makes **load affect stress** by using:
+
+```text
+contact pressure = individual wheel load / fixed tire contact area
+```
+
+```python
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -10,14 +17,13 @@ st.set_page_config(page_title="Aircraft Pavement Stress Calculator", layout="wid
 st.title("Aircraft Pavement Stress Calculator")
 st.write(
     "Educational pavement stress calculator using individual aircraft wheel loads, "
-    "fixed tire contact area, and stress bulb superposition."
+    "fixed tire contact area, calculated contact pressure, and stress bulb superposition."
 )
 
 
 AIRCRAFT_DATA = {
     "Boeing 737-800": {
         "main_gear_load_lb": 130000,
-        "tire_pressure_psi": 200,
         "contact_radius_ft": 0.65,
         "wheel_coordinates_ft": [
             (-3.0, -5.0), (-3.0, -3.0),
@@ -26,7 +32,6 @@ AIRCRAFT_DATA = {
     },
     "Airbus A321": {
         "main_gear_load_lb": 150000,
-        "tire_pressure_psi": 210,
         "contact_radius_ft": 0.70,
         "wheel_coordinates_ft": [
             (-3.0, -5.0), (-3.0, -3.0),
@@ -35,7 +40,6 @@ AIRCRAFT_DATA = {
     },
     "Boeing 777-300ER": {
         "main_gear_load_lb": 550000,
-        "tire_pressure_psi": 221,
         "contact_radius_ft": 0.85,
         "wheel_coordinates_ft": [
             (-6.0, -10.0), (-6.0, -8.0),
@@ -48,7 +52,6 @@ AIRCRAFT_DATA = {
     },
     "Airbus A380-800": {
         "main_gear_load_lb": 900000,
-        "tire_pressure_psi": 220,
         "contact_radius_ft": 0.90,
         "wheel_coordinates_ft": [
             (-6.0, -20.0), (-6.0, -18.0),
@@ -75,6 +78,9 @@ def circular_loaded_area_stress_psf(q_psf, radius_ft, x_ft, y_ft, z_ft):
 
     Off-center approximation:
     z_eff = sqrt(z^2 + r^2)
+
+    q_psf = calculated tire-pavement contact pressure
+    radius_ft = fixed equivalent tire contact radius
     """
 
     r_ft = sqrt(x_ft**2 + y_ft**2)
@@ -94,7 +100,7 @@ def gear_centroid(wheel_coordinates):
 
 def total_stress_at_point(
     wheel_coordinates,
-    tire_pressure_psf,
+    contact_pressure_psf,
     contact_radius_ft,
     analysis_x,
     analysis_y,
@@ -104,7 +110,7 @@ def total_stress_at_point(
 
     for xw, yw in wheel_coordinates:
         total += circular_loaded_area_stress_psf(
-            tire_pressure_psf,
+            contact_pressure_psf,
             contact_radius_ft,
             analysis_x - xw,
             analysis_y - yw,
@@ -114,9 +120,9 @@ def total_stress_at_point(
     return total
 
 
-def single_wheel_center_stress(tire_pressure_psf, contact_radius_ft, depth):
+def single_wheel_center_stress(contact_pressure_psf, contact_radius_ft, depth):
     return circular_loaded_area_stress_psf(
-        tire_pressure_psf,
+        contact_pressure_psf,
         contact_radius_ft,
         0.0,
         0.0,
@@ -124,9 +130,6 @@ def single_wheel_center_stress(tire_pressure_psf, contact_radius_ft, depth):
     )
 
 
-# -----------------------------
-# Sidebar
-# -----------------------------
 st.sidebar.header("Aircraft Selection")
 
 aircraft = st.sidebar.selectbox("Select Aircraft", list(AIRCRAFT_DATA.keys()))
@@ -148,13 +151,6 @@ total_main_gear_load = st.sidebar.number_input(
 
 wheel_load = total_main_gear_load / number_of_wheels
 
-tire_pressure_psi = st.sidebar.number_input(
-    "Tire Contact Pressure / Inflation Pressure (psi)",
-    min_value=50.0,
-    value=float(data["tire_pressure_psi"]),
-    step=5.0,
-)
-
 contact_radius_ft = st.sidebar.number_input(
     "Fixed Equivalent Tire Contact Radius (ft)",
     min_value=0.10,
@@ -162,9 +158,20 @@ contact_radius_ft = st.sidebar.number_input(
     step=0.05,
 )
 
+contact_area_sq_ft = pi * contact_radius_ft**2
+contact_area_sq_in = contact_area_sq_ft * 144.0
+
+contact_pressure_psf = wheel_load / contact_area_sq_ft
+contact_pressure_psi = contact_pressure_psf / 144.0
+
 st.sidebar.caption(
     f"Individual tire load = {total_main_gear_load:,.0f} lb / "
     f"{number_of_wheels} wheels = {wheel_load:,.0f} lb per tire."
+)
+
+st.sidebar.caption(
+    f"Calculated contact pressure = {wheel_load:,.0f} lb / "
+    f"{contact_area_sq_in:,.1f} in² = {contact_pressure_psi:,.1f} psi."
 )
 
 st.sidebar.header("Depth Settings")
@@ -203,34 +210,21 @@ else:
     analysis_y = st.sidebar.number_input("Analysis Y Coordinate (ft)", value=0.0, step=0.5)
 
 
-# -----------------------------
-# Calculations
-# -----------------------------
-tire_pressure_psf = tire_pressure_psi * 144.0
-contact_radius_in = contact_radius_ft * 12.0
-contact_diameter_in = contact_radius_in * 2.0
-contact_area_sq_ft = pi * contact_radius_ft**2
-contact_area_sq_in = contact_area_sq_ft * 144.0
-
 depths = np.arange(depth_increment, max_depth + depth_increment, depth_increment)
 
-combined_stress = []
-single_wheel_stress = []
 stress_rows = []
 
 for z in depths:
-    single = single_wheel_center_stress(tire_pressure_psf, contact_radius_ft, z)
+    single = single_wheel_center_stress(contact_pressure_psf, contact_radius_ft, z)
+
     total = total_stress_at_point(
         wheel_coordinates,
-        tire_pressure_psf,
+        contact_pressure_psf,
         contact_radius_ft,
         analysis_x,
         analysis_y,
         z,
     )
-
-    single_wheel_stress.append(single)
-    combined_stress.append(total)
 
     stress_rows.append({
         "Depth Below Pavement (ft)": z,
@@ -253,7 +247,7 @@ wheel_contribution_rows = []
 for z in depths:
     for i, (xw, yw) in enumerate(wheel_coordinates, start=1):
         stress = circular_loaded_area_stress_psf(
-            tire_pressure_psf,
+            contact_pressure_psf,
             contact_radius_ft,
             analysis_x - xw,
             analysis_y - yw,
@@ -271,37 +265,36 @@ for z in depths:
 wheel_contribution_df = pd.DataFrame(wheel_contribution_rows)
 
 
-# -----------------------------
-# Metrics
-# -----------------------------
 col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Aircraft", aircraft)
 col2.metric("Main Gear Wheels", number_of_wheels)
 col3.metric("Individual Tire Load", f"{wheel_load:,.0f} lb")
-col4.metric("Tire Contact Pressure", f"{tire_pressure_psi:,.0f} psi")
+col4.metric("Calculated Contact Pressure", f"{contact_pressure_psi:,.1f} psi")
+
+
+contact_radius_in = contact_radius_ft * 12.0
+contact_diameter_in = contact_radius_in * 2.0
 
 st.subheader("Model Assumptions")
 
 st.write(
-    f"Each tire is modeled as a **finite circular contact area** with fixed equivalent radius.  \n"
+    f"Each aircraft tire is modeled as a **finite circular loaded area**.  \n"
     f"Contact radius = **{contact_radius_in:.1f} in**  \n"
     f"Contact diameter = **{contact_diameter_in:.1f} in**  \n"
     f"Contact area = **{contact_area_sq_in:,.1f} in²**  \n"
+    f"Individual tire load = **{wheel_load:,.0f} lb**  \n"
+    f"Calculated contact pressure = **{contact_pressure_psi:,.1f} psi**  \n"
     f"Analysis location = **({analysis_x:.2f}, {analysis_y:.2f}) ft**"
 )
 
 st.info(
-    "Wheel loads are used to report individual tire load and load distribution. "
-    "Stress magnitude in this simplified contact-pressure model is primarily governed by tire contact pressure "
-    "and contact radius. In a more advanced layered elastic model, load, contact area, pavement stiffness, "
-    "and layer thicknesses would interact more rigorously."
+    "In this version, the tire contact radius is fixed and contact pressure is calculated as "
+    "individual wheel load divided by contact area. Therefore, increasing aircraft load increases "
+    "calculated contact pressure and increases the stress response."
 )
 
 
-# -----------------------------
-# Main plots
-# -----------------------------
 st.subheader("Single Wheel vs Combined Gear Stress")
 
 fig_compare = px.line(
@@ -339,16 +332,6 @@ fig_wheels.update_layout(
 st.plotly_chart(fig_wheels, use_container_width=True)
 
 
-st.write(
-    "Different wheels show different stress contributions only when the selected analysis point is closer "
-    "to some wheels than others. If you evaluate directly beneath each identical wheel center, the single-wheel "
-    "response is the same."
-)
-
-
-# -----------------------------
-# Plan-view stress map
-# -----------------------------
 st.subheader("Plan-View Stress Bulb Overlap Map")
 
 selected_depth = st.slider(
@@ -376,7 +359,7 @@ for x in x_grid:
     for y in y_grid:
         total = total_stress_at_point(
             wheel_coordinates,
-            tire_pressure_psf,
+            contact_pressure_psf,
             contact_radius_ft,
             x,
             y,
@@ -427,9 +410,6 @@ fig_heat.update_yaxes(scaleanchor="x", scaleratio=1)
 st.plotly_chart(fig_heat, use_container_width=True)
 
 
-# -----------------------------
-# Layout plot
-# -----------------------------
 st.subheader("Simplified Main Gear Layout")
 
 fig_layout = px.scatter(
@@ -447,15 +427,11 @@ fig_layout.add_scatter(
     name="Analysis Point",
 )
 
-fig_layout.update_traces(marker=dict(size=12))
 fig_layout.update_yaxes(scaleanchor="x", scaleratio=1)
 
 st.plotly_chart(fig_layout, use_container_width=True)
 
 
-# -----------------------------
-# Tables
-# -----------------------------
 st.subheader("Stress Table")
 
 table_df = comparison_df.pivot(
@@ -473,6 +449,7 @@ st.dataframe(
     use_container_width=True,
 )
 
+
 st.subheader("Wheel Contribution Table")
 
 st.dataframe(
@@ -489,6 +466,7 @@ st.dataframe(
 st.warning(
     "Engineering note: This is an educational approximation. It uses fixed equivalent circular tire contact areas "
     "and superposes individual wheel stress bulbs. It does not replace layered elastic pavement analysis, "
-    "FAARFIELD, finite element modeling, tire-pavement contact mechanics, gear wander, load repetitions, "
-    "or pass-to-coverage analysis. Copyright by Rafat Sadat."
+    "FAARFIELD, finite element modeling, aircraft-specific tire-pavement contact mechanics, gear wander, "
+    "load repetitions, or pass-to-coverage analysis."
 )
+```
