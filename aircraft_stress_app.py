@@ -1,10 +1,4 @@
-Here is the full revised code. This version makes **load affect stress** by using:
 
-```text
-contact pressure = individual wheel load / fixed tire contact area
-```
-
-```python
 import streamlit as st
 import numpy as np
 import pandas as pd
