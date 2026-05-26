@@ -19,7 +19,7 @@ st.set_page_config(
 
 
 # ============================================================
-# Engineering Helper Functions
+# Data Classes
 # ============================================================
 @dataclass
 class BearingCapacityFactors:
@@ -57,30 +57,14 @@ class PressureResult:
     grid_q: np.ndarray
 
 
-def safe_float(value: float, default: float = 0.0) -> float:
-    try:
-        if value is None or math.isnan(float(value)):
-            return default
-        return float(value)
-    except Exception:
-        return default
-
-
+# ============================================================
+# Bearing Capacity Functions
+# ============================================================
 def bearing_capacity_factors(phi_deg: float, ngamma_method: str) -> BearingCapacityFactors:
     """
-    Bearing capacity factors using classical closed-form expressions.
-
-    For phi = 0 undrained condition, Terzaghi's commonly used values are:
+    Classical bearing capacity factors.
+    For phi = 0:
         Nc = 5.7, Nq = 1.0, Ngamma = 0.0
-
-    For phi > 0:
-        Nq = exp(pi tan phi) tan^2(45 + phi/2)
-        Nc = (Nq - 1) / tan phi
-
-    Ngamma is not unique across classical methods, so the app lets the user select:
-        - Terzaghi approximation: Ngamma = 1.5 (Nq - 1) tan phi
-        - Meyerhof:             Ngamma = (Nq - 1) tan(1.4 phi)
-        - Vesic:                Ngamma = 2 (Nq + 1) tan phi
     """
     phi_deg = max(0.0, min(phi_deg, 50.0))
 
@@ -88,6 +72,7 @@ def bearing_capacity_factors(phi_deg: float, ngamma_method: str) -> BearingCapac
         return BearingCapacityFactors(nc=5.7, nq=1.0, ngamma=0.0)
 
     phi = math.radians(phi_deg)
+
     nq = math.exp(math.pi * math.tan(phi)) * math.tan(math.radians(45.0) + phi / 2.0) ** 2
     nc = (nq - 1.0) / math.tan(phi)
 
@@ -110,27 +95,20 @@ def effective_unit_weight_for_bearing(
 ) -> Tuple[float, str]:
     """
     Simplified groundwater correction for the gamma term.
-
-    Depth is measured from ground surface downward.
-    - If water table is below Df + B, use moist unit weight.
-    - If water table is at or above Df, use submerged unit weight for bearing gamma term.
-    - If water table lies between Df and Df + B, interpolate between moist and submerged.
-
-    This correction affects the 0.5 gamma B Ngamma term. Surcharge q is handled separately.
     """
     gamma_w = 62.4
     gamma_sub_pcf = max(gamma_sat_pcf - gamma_w, 0.0)
 
     if water_table_depth_ft <= foundation_depth_ft:
-        return gamma_sub_pcf, "Water table at/above foundation base; submerged unit weight used for bearing γ term."
+        return gamma_sub_pcf, "Water table at/above foundation base; submerged unit weight used for γ term."
 
     if water_table_depth_ft >= foundation_depth_ft + footing_width_ft:
-        return gamma_moist_pcf, "Water table below Df + B; moist unit weight used for bearing γ term."
+        return gamma_moist_pcf, "Water table below Df + B; moist unit weight used for γ term."
 
     distance_below_base = water_table_depth_ft - foundation_depth_ft
     ratio_moist = max(0.0, min(distance_below_base / footing_width_ft, 1.0))
     gamma_eff = ratio_moist * gamma_moist_pcf + (1.0 - ratio_moist) * gamma_sub_pcf
-    return gamma_eff, "Water table between Df and Df + B; interpolated effective γ used for bearing γ term."
+    return gamma_eff, "Water table between Df and Df + B; interpolated effective γ used."
 
 
 def surcharge_at_base(
@@ -140,7 +118,7 @@ def surcharge_at_base(
     foundation_depth_ft: float,
 ) -> float:
     """
-    Computes approximate effective overburden surcharge q at foundation base in ksf.
+    Approximate effective surcharge at base, in ksf.
     """
     gamma_w = 62.4
     gamma_sub_pcf = max(gamma_sat_pcf - gamma_w, 0.0)
@@ -160,18 +138,11 @@ def surcharge_at_base(
 
 def shape_factors_terzaghi_rectangular(B_ft: float, L_ft: float) -> Tuple[float, float, float]:
     """
-    Terzaghi-style shape modifiers for rectangular/square footings.
-
-    For rectangular footing with B <= L:
-        sc = 1 + 0.3 B/L
+    Terzaghi-style rectangular footing shape factors.
+    For B <= L:
+        sc = 1 + 0.3(B/L)
         sq = 1.0
-        sγ = 1 - 0.2 B/L
-
-    This recovers approximately:
-        square: sc = 1.3, sγ = 0.8
-    Terzaghi square expression is commonly written as:
-        qult = 1.3 cNc + qNq + 0.4γBNγ
-    which is equivalent to 0.5γBNγ * 0.8.
+        sγ = 1 - 0.2(B/L)
     """
     B = max(min(B_ft, L_ft), 1e-9)
     L = max(max(B_ft, L_ft), 1e-9)
@@ -211,6 +182,7 @@ def compute_bearing_capacity(
         + q_ksf * factors.nq * sq
         + 0.5 * gamma_eff_kcf * B_eff * factors.ngamma * sgamma
     )
+
     qult_net = max(qult_gross - q_ksf, 0.0)
     qall_gross = qult_gross / fs_target if fs_target > 0 else 0.0
     qall_net = qult_net / fs_target if fs_target > 0 else 0.0
@@ -228,6 +200,9 @@ def compute_bearing_capacity(
     )
 
 
+# ============================================================
+# Contact Pressure at Footing Base
+# ============================================================
 def compute_pressure_distribution(
     P_kips: float,
     Mx_kipft: float,
@@ -237,21 +212,14 @@ def compute_pressure_distribution(
     grid_n: int = 81,
 ) -> PressureResult:
     """
-    Rigid footing linear contact pressure under axial load and biaxial moment.
+    Rigid footing linear pressure distribution:
+        q(x,y) = P/A + My*x/Iy + Mx*y/Ix
 
-    Coordinate system:
-        x = footing width direction, from -B/2 to +B/2
-        y = footing length direction, from -L/2 to +L/2
+    x = width direction
+    y = length direction
 
-    Moments:
-        Mx causes pressure variation along y.
-        My causes pressure variation along x.
-
-    q(x,y) = P/A + My*x/Iy + Mx*y/Ix
-
-    where:
-        Ix = B L^3 / 12
-        Iy = L B^3 / 12
+    Mx varies pressure along y.
+    My varies pressure along x.
     """
     B = max(B_ft, 1e-9)
     L = max(L_ft, 1e-9)
@@ -271,6 +239,7 @@ def compute_pressure_distribution(
 
     kern_ok_x = abs(e_x) <= B / 6.0
     kern_ok_y = abs(e_y) <= L / 6.0
+
     q_min = float(np.min(q_grid))
     q_max = float(np.max(q_grid))
     uplift_area_present = q_min < 0.0
@@ -291,7 +260,122 @@ def compute_pressure_distribution(
     )
 
 
-def build_pressure_surface_figure(pr: PressureResult, B_ft: float, L_ft: float) -> go.Figure:
+def compute_base_pressure_grid(
+    P_kips: float,
+    Mx_kipft: float,
+    My_kipft: float,
+    B_ft: float,
+    L_ft: float,
+    n: int = 41,
+    clip_tension: bool = False,
+):
+    """
+    Returns base contact pressure grid for use in subsurface stress calculation.
+    """
+    B = max(B_ft, 1e-9)
+    L = max(L_ft, 1e-9)
+    A = B * L
+    Ix = B * L**3 / 12.0
+    Iy = L * B**3 / 12.0
+
+    x = np.linspace(-B / 2.0, B / 2.0, n)
+    y = np.linspace(-L / 2.0, L / 2.0, n)
+    X, Y = np.meshgrid(x, y)
+
+    q_avg = P_kips / A if A > 0 else 0.0
+    q = q_avg + (My_kipft * X / Iy if Iy > 0 else 0.0) + (Mx_kipft * Y / Ix if Ix > 0 else 0.0)
+
+    if clip_tension:
+        q = np.maximum(q, 0.0)
+
+    return X, Y, q
+
+
+# ============================================================
+# Subsurface Stress (Boussinesq Numerical Integration)
+# ============================================================
+def compute_subsurface_stress_section(
+    P_kips: float,
+    Mx_kipft: float,
+    My_kipft: float,
+    B_ft: float,
+    L_ft: float,
+    z_max_ft: float,
+    direction: str = "width",
+    n_source: int = 31,
+    n_eval: int = 51,
+    lateral_extent_factor: float = 1.0,
+    clip_tension: bool = True,
+):
+    """
+    Computes vertical stress below the footing by numerically integrating the
+    Boussinesq point-load solution over the loaded footing base.
+
+    Vertical stress due to point load:
+        σz = (3Q / 2π) * z^3 / R^5
+
+    For distributed pressure:
+        dQ = q dA
+    """
+    Xs, Ys, qs = compute_base_pressure_grid(
+        P_kips, Mx_kipft, My_kipft, B_ft, L_ft, n=n_source, clip_tension=clip_tension
+    )
+
+    x_source = Xs[0, :]
+    y_source = Ys[:, 0]
+    dx = x_source[1] - x_source[0]
+    dy = y_source[1] - y_source[0]
+
+    if direction == "width":
+        span = B_ft
+        coord = np.linspace(-lateral_extent_factor * B_ft, lateral_extent_factor * B_ft, n_eval)
+    else:
+        span = L_ft
+        coord = np.linspace(-lateral_extent_factor * L_ft, lateral_extent_factor * L_ft, n_eval)
+
+    z_vals = np.linspace(0.1, z_max_ft, n_eval)
+    sigma = np.zeros((len(z_vals), len(coord)))
+
+    for iz, z in enumerate(z_vals):
+        if direction == "width":
+            # section at y = 0, varying x
+            for ic, x0 in enumerate(coord):
+                R2 = (x0 - Xs) ** 2 + Ys**2 + z**2
+                sigma[iz, ic] = np.sum((3.0 * qs * z**3 / (2.0 * np.pi * (R2 ** 2.5))) * dx * dy)
+        else:
+            # section at x = 0, varying y
+            for ic, y0 in enumerate(coord):
+                R2 = Xs**2 + (y0 - Ys) ** 2 + z**2
+                sigma[iz, ic] = np.sum((3.0 * qs * z**3 / (2.0 * np.pi * (R2 ** 2.5))) * dx * dy)
+
+    return coord, z_vals, sigma
+
+
+# ============================================================
+# Plotting Functions
+# ============================================================
+def build_pressure_contour_figure(pr: PressureResult) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Contour(
+            x=pr.grid_x[0, :],
+            y=pr.grid_y[:, 0],
+            z=pr.grid_q,
+            colorscale="Viridis",
+            colorbar=dict(title="q (ksf)"),
+            contours=dict(showlabels=True, labelfont=dict(size=10)),
+        )
+    )
+    fig.update_layout(
+        title="Plan View Contact Pressure at Footing Base",
+        xaxis_title="Width direction, x (ft)",
+        yaxis_title="Length direction, y (ft)",
+        height=520,
+    )
+    return fig
+
+
+def build_pressure_surface_figure(pr: PressureResult) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(
         go.Surface(
@@ -303,63 +387,246 @@ def build_pressure_surface_figure(pr: PressureResult, B_ft: float, L_ft: float) 
         )
     )
     fig.update_layout(
-        title="3D Bearing Pressure Distribution Under Footing",
+        title="3D Contact Pressure Surface",
         scene=dict(
-            xaxis_title="Width direction, x (ft)",
-            yaxis_title="Length direction, y (ft)",
-            zaxis_title="Bearing pressure, q (ksf)",
+            xaxis_title="x (ft)",
+            yaxis_title="y (ft)",
+            zaxis_title="q (ksf)",
         ),
         margin=dict(l=0, r=0, b=0, t=45),
-        height=620,
+        height=600,
     )
     return fig
 
 
-def build_pressure_contour_figure(pr: PressureResult) -> go.Figure:
+def build_base_profile_figure(coord: np.ndarray, qline: np.ndarray, axis_name: str, moment_name: str) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(
-        go.Contour(
-            x=pr.grid_x[0, :],
-            y=pr.grid_y[:, 0],
-            z=pr.grid_q,
-            colorscale="Viridis",
-            colorbar=dict(title="q (ksf)"),
-            contours=dict(showlabels=True, labelfont=dict(size=11)),
+        go.Scatter(
+            x=coord,
+            y=qline,
+            mode="lines",
+            fill="tozeroy",
+            name="Base pressure",
         )
     )
     fig.update_layout(
-        title="Plan View Pressure Contours",
-        xaxis_title="Width direction, x (ft)",
-        yaxis_title="Length direction, y (ft)",
-        height=560,
+        title=f"2D Base Pressure Profile Along {axis_name} Direction ({moment_name} effect)",
+        xaxis_title=f"{axis_name} coordinate (ft)",
+        yaxis_title="Bearing pressure at base, q (ksf)",
+        height=420,
     )
     return fig
 
 
-def classify_status(fs_actual: float, fs_target: float, qmax: float, qall: float, uplift: bool) -> Tuple[str, str]:
+def build_subsurface_heatmap_figure(
+    coord: np.ndarray,
+    z_vals: np.ndarray,
+    sigma: np.ndarray,
+    section_name: str,
+) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Heatmap(
+            x=coord,
+            y=z_vals,
+            z=sigma,
+            colorscale="Viridis",
+            colorbar=dict(title="σz (ksf)"),
+        )
+    )
+    fig.update_layout(
+        title=f"Subsurface Vertical Stress Distribution - {section_name} Section",
+        xaxis_title=f"{section_name} coordinate (ft)",
+        yaxis_title="Depth below footing base, z (ft)",
+        height=500,
+        yaxis=dict(autorange="reversed"),
+    )
+    return fig
+
+
+def build_centerline_depth_figure(z_vals: np.ndarray, sigma_centerline: np.ndarray, section_name: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=sigma_centerline,
+            y=z_vals,
+            mode="lines",
+            name="σz",
+        )
+    )
+    fig.update_layout(
+        title=f"Vertical Stress vs Depth at Centerline - {section_name} Section",
+        xaxis_title="Vertical stress, σz (ksf)",
+        yaxis_title="Depth below footing base, z (ft)",
+        height=420,
+        yaxis=dict(autorange="reversed"),
+    )
+    return fig
+
+
+def build_loading_schematic(
+    span_ft: float,
+    Df_ft: float,
+    coord_line: np.ndarray,
+    q_line: np.ndarray,
+    section_title: str,
+    section_axis: str,
+    moment_label: str,
+) -> go.Figure:
+    """
+    Simple 2D schematic showing footing, axial load, applied moment,
+    and pressure profile under the footing.
+    """
+    thickness = max(0.8, 0.12 * span_ft)
+    col_w = 0.18 * span_ft
+    col_h = 0.35 * span_ft
+
+    y_ground = 0.0
+    y_base_top = -Df_ft
+    y_base_bot = -Df_ft - thickness
+
+    q_comp = np.maximum(q_line, 0.0)
+    qmax = max(np.max(q_comp), 1e-6)
+    pressure_scale = 0.35 * span_ft / qmax
+    y_pressure = y_base_bot - q_comp * pressure_scale
+
+    fig = go.Figure()
+
+    # Ground line
+    fig.add_shape(type="line", x0=-0.9 * span_ft, x1=0.9 * span_ft, y0=y_ground, y1=y_ground)
+
+    # Footing
+    fig.add_shape(
+        type="rect",
+        x0=-span_ft / 2.0,
+        x1=span_ft / 2.0,
+        y0=y_base_bot,
+        y1=y_base_top,
+        line=dict(color="black"),
+        fillcolor="lightgray",
+    )
+
+    # Column / pedestal
+    fig.add_shape(
+        type="rect",
+        x0=-col_w / 2.0,
+        x1=col_w / 2.0,
+        y0=y_base_top,
+        y1=y_base_top + col_h,
+        line=dict(color="black"),
+        fillcolor="silver",
+    )
+
+    # Axial load arrow
+    fig.add_annotation(
+        x=0.0,
+        y=y_base_top + col_h,
+        ax=0.0,
+        ay=y_base_top + col_h + 0.35 * span_ft,
+        showarrow=True,
+        arrowhead=3,
+        arrowsize=1.4,
+        arrowwidth=2,
+        text="P",
+    )
+
+    # Moment arc
+    theta = np.linspace(0.2 * np.pi, 1.45 * np.pi, 60)
+    r = 0.22 * span_ft
+    x_arc = r * np.cos(theta)
+    y_arc = (y_base_top + col_h + 0.12 * span_ft) + r * np.sin(theta)
+    fig.add_trace(go.Scatter(x=x_arc, y=y_arc, mode="lines", name=moment_label))
+    fig.add_annotation(
+        x=x_arc[-1],
+        y=y_arc[-1],
+        ax=x_arc[-5],
+        ay=y_arc[-5],
+        showarrow=True,
+        arrowhead=2,
+        arrowsize=1.2,
+        arrowwidth=2,
+        text=moment_label,
+    )
+
+    # Pressure polygon
+    poly_x = list(coord_line) + list(coord_line[::-1])
+    poly_y = list(y_pressure) + [y_base_bot] * len(coord_line)
+    fig.add_trace(
+        go.Scatter(
+            x=poly_x,
+            y=poly_y,
+            fill="toself",
+            mode="lines",
+            line=dict(color="blue"),
+            fillcolor="rgba(0, 0, 255, 0.25)",
+            name="Bearing pressure",
+        )
+    )
+
+    fig.add_annotation(
+        x=coord_line[int(0.8 * len(coord_line))],
+        y=np.min(y_pressure),
+        text="q",
+        showarrow=False,
+        font=dict(color="blue"),
+    )
+
+    fig.add_annotation(
+        x=-0.82 * span_ft,
+        y=y_ground + 0.05 * span_ft,
+        text="Ground surface",
+        showarrow=False,
+    )
+
+    fig.add_annotation(
+        x=0.65 * span_ft,
+        y=(y_base_top + y_base_bot) / 2.0,
+        text=f"Df = {Df_ft:.2f} ft",
+        showarrow=False,
+    )
+
+    fig.update_layout(
+        title=section_title,
+        xaxis_title=f"{section_axis} direction (ft)",
+        yaxis_title="Elevation / schematic depth",
+        height=520,
+        showlegend=False,
+    )
+
+    fig.update_yaxes(scaleanchor=None)
+    return fig
+
+
+# ============================================================
+# Status Helper
+# ============================================================
+def classify_status(fs_actual: float, fs_target: float, uplift: bool) -> Tuple[str, str]:
     if uplift:
         return (
-            "⚠️ Not adequate for classical full-contact pressure assumption",
-            "Negative bearing pressure is predicted at part of the footing. Soil cannot take tension; increase footing size, reduce moment, or perform partial-contact/eccentric footing analysis.",
+            "⚠️ Not adequate for full-contact assumption",
+            "Negative bearing pressure is predicted over part of the footing. Soil cannot resist tension. Increase footing size, reduce eccentricity, or use partial-contact/effective-area analysis."
         )
-    if qmax <= qall and fs_actual >= fs_target:
+
+    if fs_actual >= fs_target:
         return (
-            "✅ Adequate for bearing pressure based on selected criteria",
-            "Maximum service bearing pressure is less than or equal to allowable bearing pressure.",
+            "✅ Adequate for bearing pressure",
+            "The footing satisfies the selected bearing capacity check."
         )
+
     return (
         "❌ Not adequate for bearing capacity",
-        "Maximum service bearing pressure exceeds allowable bearing pressure. Increase B/L, improve soil, increase embedment, or reduce loads.",
+        "The footing does not satisfy the selected bearing pressure check. Increase footing dimensions, improve soil, increase embedment, or reduce loads."
     )
 
 
 # ============================================================
-# App Header
+# Header
 # ============================================================
 st.title("Spread Footing Design Using Terzaghi Bearing Capacity Theory")
 st.caption(
     "Preliminary geotechnical design tool for rectangular spread footings under axial load and biaxial moments. "
-    "Use for screening and educational calculations; final design should be reviewed by a qualified geotechnical/structural engineer."
+    "Terzaghi is used for bearing capacity; Boussinesq elastic integration is used to visualize subsurface stress spread."
 )
 
 
@@ -399,7 +666,10 @@ else:
 gamma_moist_pcf = st.sidebar.number_input("Moist unit weight, γmoist (pcf)", min_value=50.0, value=120.0, step=1.0)
 gamma_sat_pcf = st.sidebar.number_input("Saturated unit weight, γsat (pcf)", min_value=50.0, value=125.0, step=1.0)
 water_table_depth_ft = st.sidebar.number_input(
-    "Depth to groundwater below ground surface (ft)", min_value=0.0, value=999.0, step=1.0
+    "Depth to groundwater below ground surface (ft)",
+    min_value=0.0,
+    value=999.0,
+    step=1.0,
 )
 
 st.sidebar.header("4. Design Criteria")
@@ -418,13 +688,16 @@ ngamma_method = st.sidebar.selectbox(
 )
 
 st.sidebar.header("5. Plot Settings")
-grid_n = st.sidebar.slider("Pressure plot resolution", min_value=25, max_value=151, value=81, step=2)
+grid_n = st.sidebar.slider("Base pressure plot resolution", min_value=25, max_value=151, value=81, step=2)
+z_max_ft = st.sidebar.number_input("Maximum depth below footing base for subsurface plots (ft)", min_value=1.0, value=15.0, step=1.0)
+n_eval = st.sidebar.slider("Subsurface plot resolution", min_value=21, max_value=81, value=41, step=2)
+n_source = st.sidebar.slider("Subsurface integration grid", min_value=15, max_value=51, value=31, step=2)
+lateral_extent_factor = st.sidebar.slider("Subsurface lateral extent factor", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
 
 
 # ============================================================
 # Calculations
 # ============================================================
-B_eff_for_bearing = min(B_ft, L_ft)
 A_ft2 = B_ft * L_ft
 
 bc = compute_bearing_capacity(
@@ -450,11 +723,14 @@ pr = compute_pressure_distribution(
 )
 
 gamma_eff_pcf, gw_note = effective_unit_weight_for_bearing(
-    gamma_moist_pcf, gamma_sat_pcf, water_table_depth_ft, Df_ft, B_eff_for_bearing
+    gamma_moist_pcf,
+    gamma_sat_pcf,
+    water_table_depth_ft,
+    Df_ft,
+    min(B_ft, L_ft),
 )
 
 service_net_qmax = max(pr.q_max_ksf - bc.surcharge_q_ksf, 0.0)
-service_net_qavg = max(pr.q_avg_ksf - bc.surcharge_q_ksf, 0.0)
 
 if capacity_basis == "Gross allowable vs gross service qmax":
     demand_ksf = pr.q_max_ksf
@@ -468,49 +744,92 @@ else:
     basis_label = "net"
 
 fs_actual = ultimate_ksf / demand_ksf if demand_ksf > 1e-9 else float("inf")
-status_title, status_body = classify_status(fs_actual, fs_target, demand_ksf, allowable_ksf, pr.uplift_area_present)
+status_title, status_body = classify_status(fs_actual, fs_target, pr.uplift_area_present)
+
+# Base pressure profile lines
+x_line = pr.grid_x[0, :]
+y_line = pr.grid_y[:, 0]
+row_mid = len(y_line) // 2
+col_mid = len(x_line) // 2
+
+q_width_line = pr.grid_q[row_mid, :]   # at y = 0
+q_length_line = pr.grid_q[:, col_mid]  # at x = 0
+
+# Subsurface stress sections using Boussinesq integration
+coord_w, z_vals_w, sigma_w = compute_subsurface_stress_section(
+    P_kips=P_kips,
+    Mx_kipft=Mx_kipft,
+    My_kipft=My_kipft,
+    B_ft=B_ft,
+    L_ft=L_ft,
+    z_max_ft=z_max_ft,
+    direction="width",
+    n_source=n_source,
+    n_eval=n_eval,
+    lateral_extent_factor=lateral_extent_factor,
+    clip_tension=True,
+)
+
+coord_l, z_vals_l, sigma_l = compute_subsurface_stress_section(
+    P_kips=P_kips,
+    Mx_kipft=Mx_kipft,
+    My_kipft=My_kipft,
+    B_ft=B_ft,
+    L_ft=L_ft,
+    z_max_ft=z_max_ft,
+    direction="length",
+    n_source=n_source,
+    n_eval=n_eval,
+    lateral_extent_factor=lateral_extent_factor,
+    clip_tension=True,
+)
+
+sigma_w_center = sigma_w[:, len(coord_w) // 2]
+sigma_l_center = sigma_l[:, len(coord_l) // 2]
 
 
 # ============================================================
-# Main Results
+# Main Summary
 # ============================================================
 st.subheader("Design Summary")
 
-summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
-summary_col1.metric("Footing Area", f"{A_ft2:,.1f} ft²")
-summary_col2.metric("Average Service Pressure", f"{pr.q_avg_ksf:,.2f} ksf")
-summary_col3.metric("Maximum Service Pressure", f"{pr.q_max_ksf:,.2f} ksf")
-summary_col4.metric("Minimum Service Pressure", f"{pr.q_min_ksf:,.2f} ksf")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Footing Area", f"{A_ft2:,.2f} ft²")
+c2.metric("Average Base Pressure", f"{pr.q_avg_ksf:,.3f} ksf")
+c3.metric("Maximum Base Pressure", f"{pr.q_max_ksf:,.3f} ksf")
+c4.metric("Minimum Base Pressure", f"{pr.q_min_ksf:,.3f} ksf")
 
-status_box = st.container(border=True)
-with status_box:
+box = st.container(border=True)
+with box:
     st.markdown(f"### {status_title}")
     st.write(status_body)
     st.write(
-        f"**Selected comparison:** {basis_label.capitalize()} demand = `{demand_ksf:,.2f} ksf`; "
-        f"{basis_label.capitalize()} allowable = `{allowable_ksf:,.2f} ksf`; "
-        f"Calculated FS = `{fs_actual:,.2f}` vs target FS = `{fs_target:,.2f}`."
+        f"**Selected comparison basis:** {basis_label.capitalize()} pressure"
+        f"  |  Demand = `{demand_ksf:,.3f} ksf`"
+        f"  |  Allowable = `{allowable_ksf:,.3f} ksf`"
+        f"  |  FS = `{fs_actual:,.3f}`"
+        f"  |  Target FS = `{fs_target:,.3f}`"
     )
 
 if not pr.kern_ok_x or not pr.kern_ok_y:
     st.warning(
-        "The resultant is outside the footing kern in at least one direction. "
-        "The full-contact linear pressure equation may predict tension. Consider increasing footing size, reducing moments, or using partial-contact analysis."
+        "The resultant is outside the kern in at least one direction. "
+        "This indicates possible loss of contact over part of the footing."
     )
 
 if pr.uplift_area_present:
     st.error(
-        "Negative contact pressure is present in the calculated pressure grid. Soil cannot resist tension. "
-        "Do not use the full-contact qmin/qmax result as a final design check."
+        "Negative contact pressure exists in the full-contact solution. "
+        "For subsurface stress plots, tensile base pressure has been clipped to zero for visualization."
     )
 
 
 # ============================================================
-# Detailed Output Tables
+# Detailed Tables
 # ============================================================
 st.subheader("Bearing Capacity Calculation")
 
-calc_data = {
+calc_df = pd.DataFrame({
     "Parameter": [
         "Nc",
         "Nq",
@@ -518,12 +837,16 @@ calc_data = {
         "Shape factor sc",
         "Shape factor sq",
         "Shape factor sγ",
-        "Effective surcharge at base, q",
+        "Surcharge at base, q",
         "Effective γ for bearing term",
         "Ultimate gross bearing capacity, qult,gross",
         "Ultimate net bearing capacity, qult,net",
         "Allowable gross bearing pressure, qall,gross",
         "Allowable net bearing pressure, qall,net",
+        "e_x = My / P",
+        "e_y = Mx / P",
+        "B / 6",
+        "L / 6",
     ],
     "Value": [
         f"{bc.factors.nc:,.3f}",
@@ -538,225 +861,257 @@ calc_data = {
         f"{bc.qult_net_ksf:,.3f} ksf",
         f"{bc.qall_gross_ksf:,.3f} ksf",
         f"{bc.qall_net_ksf:,.3f} ksf",
-    ],
-}
-st.dataframe(pd.DataFrame(calc_data), use_container_width=True, hide_index=True)
-st.info(gw_note)
-
-st.subheader("Eccentricity and Contact Pressure Check")
-
-pressure_data = {
-    "Parameter": [
-        "e_x = My / P",
-        "e_y = Mx / P",
-        "B / 6 kern limit",
-        "L / 6 kern limit",
-        "Average gross pressure",
-        "Maximum gross pressure",
-        "Minimum gross pressure",
-        "Maximum net pressure used in net check",
-    ],
-    "Value": [
         f"{pr.e_x_ft:,.3f} ft",
         f"{pr.e_y_ft:,.3f} ft",
-        f"{B_ft / 6.0:,.3f} ft",
-        f"{L_ft / 6.0:,.3f} ft",
-        f"{pr.q_avg_ksf:,.3f} ksf",
-        f"{pr.q_max_ksf:,.3f} ksf",
-        f"{pr.q_min_ksf:,.3f} ksf",
-        f"{service_net_qmax:,.3f} ksf",
+        f"{B_ft/6.0:,.3f} ft",
+        f"{L_ft/6.0:,.3f} ft",
     ],
-    "Status": [
-        "OK" if pr.kern_ok_x else "Outside kern",
-        "OK" if pr.kern_ok_y else "Outside kern",
-        "Reference",
-        "Reference",
-        "Reference",
-        "Demand",
-        "No tension OK" if pr.q_min_ksf >= 0 else "Tension predicted",
-        "Demand" if capacity_basis.startswith("Net") else "Reference",
-    ],
-}
-st.dataframe(pd.DataFrame(pressure_data), use_container_width=True, hide_index=True)
+})
+st.dataframe(calc_df, use_container_width=True, hide_index=True)
+st.info(gw_note)
 
 
 # ============================================================
-# Plots
+# Tabs for Graphics
 # ============================================================
-st.subheader("Pressure Distribution Under Foundation")
-plot_col1, plot_col2 = st.columns(2)
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Plan & Base Profiles",
+    "Subsurface Stress",
+    "Foundation Schematics",
+    "3D Pressure Surface",
+    "Formula Reference",
+])
 
-with plot_col1:
-    st.plotly_chart(build_pressure_contour_figure(pr), use_container_width=True)
+with tab1:
+    st.subheader("2D Contact Pressure Views")
 
-with plot_col2:
-    st.plotly_chart(build_pressure_surface_figure(pr, B_ft, L_ft), use_container_width=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(build_pressure_contour_figure(pr), use_container_width=True)
+    with col2:
+        st.write(
+            "This contour shows the **contact pressure at the footing base**. "
+            "Pressure varies linearly because the footing is treated as rigid under axial load and biaxial moment."
+        )
+        st.plotly_chart(build_base_profile_figure(x_line, q_width_line, "Width", "My"), use_container_width=True)
 
+    col3, col4 = st.columns(2)
+    with col3:
+        st.plotly_chart(build_base_profile_figure(y_line, q_length_line, "Length", "Mx"), use_container_width=True)
+    with col4:
+        st.write(
+            "The width profile is taken at **y = 0**, and the length profile is taken at **x = 0**. "
+            "These are useful 2D section views of the pressure distribution under the footing."
+        )
 
-# ============================================================
-# Design Interpretation
-# ============================================================
-st.subheader("Engineering Interpretation")
+with tab2:
+    st.subheader("Subsurface Stress Variation with Depth and Width / Length")
 
-interpretation = []
-interpretation.append(
-    f"The resultant eccentricity is **ex = {pr.e_x_ft:.3f} ft** across the footing width and **ey = {pr.e_y_ft:.3f} ft** along the footing length."
-)
+    st.markdown(
+        """
+        The plots below show **vertical stress in the soil mass below the footing**.  
+        These are computed using **numerical integration of the Boussinesq point-load solution**
+        over the base contact pressure distribution.
 
-if pr.kern_ok_x and pr.kern_ok_y:
-    interpretation.append(
-        "The resultant lies within the rectangular kern limits in both directions, so the full-contact linear pressure assumption is acceptable for preliminary checks."
+        **Important:**  
+        - This is **not** the Terzaghi bearing capacity equation.  
+        - Terzaghi is used for **ultimate bearing capacity**.  
+        - Boussinesq here is used to **visualize how stress spreads with depth**.
+        """
     )
-else:
-    interpretation.append(
-        "The resultant is outside at least one kern limit. This indicates possible partial contact and invalidates a simple full-contact linear pressure check for final design."
+
+    r1c1, r1c2 = st.columns(2)
+    with r1c1:
+        st.plotly_chart(
+            build_subsurface_heatmap_figure(coord_w, z_vals_w, sigma_w, "Width"),
+            use_container_width=True,
+        )
+    with r1c2:
+        st.plotly_chart(
+            build_centerline_depth_figure(z_vals_w, sigma_w_center, "Width"),
+            use_container_width=True,
+        )
+
+    r2c1, r2c2 = st.columns(2)
+    with r2c1:
+        st.plotly_chart(
+            build_subsurface_heatmap_figure(coord_l, z_vals_l, sigma_l, "Length"),
+            use_container_width=True,
+        )
+    with r2c2:
+        st.plotly_chart(
+            build_centerline_depth_figure(z_vals_l, sigma_l_center, "Length"),
+            use_container_width=True,
+        )
+
+with tab3:
+    st.subheader("2D Foundation Pictures Showing Axial Load and Moments")
+
+    s1, s2 = st.columns(2)
+    with s1:
+        st.plotly_chart(
+            build_loading_schematic(
+                span_ft=B_ft,
+                Df_ft=Df_ft,
+                coord_line=x_line,
+                q_line=q_width_line,
+                section_title="Width Section: Axial Load P and Moment My",
+                section_axis="Width, x",
+                moment_label="My",
+            ),
+            use_container_width=True,
+        )
+
+    with s2:
+        st.plotly_chart(
+            build_loading_schematic(
+                span_ft=L_ft,
+                Df_ft=Df_ft,
+                coord_line=y_line,
+                q_line=q_length_line,
+                section_title="Length Section: Axial Load P and Moment Mx",
+                section_axis="Length, y",
+                moment_label="Mx",
+            ),
+            use_container_width=True,
+        )
+
+    st.write(
+        "These schematics are conceptual 2D section views. "
+        "They graphically show the applied axial load, the corresponding moment direction, "
+        "and the resulting pressure shape beneath the footing."
     )
 
-if demand_ksf <= allowable_ksf and not pr.uplift_area_present:
-    interpretation.append(
-        "The selected footing size satisfies the selected bearing capacity check. Settlement, sliding, overturning, structural shear, punching shear, and flexure still need to be checked separately."
-    )
-else:
-    interpretation.append(
-        "The selected footing size does not satisfy the selected bearing capacity/contact pressure check. Increasing B and/or L is usually the first practical iteration."
-    )
+with tab4:
+    st.subheader("3D Contact Pressure Surface")
+    st.plotly_chart(build_pressure_surface_figure(pr), use_container_width=True)
 
-for item in interpretation:
-    st.markdown(f"- {item}")
+with tab5:
+    st.header("Formula Reference")
+
+    with st.expander("1. Terzaghi Bearing Capacity Equation", expanded=True):
+        st.latex(r"q_{ult,gross}=cN_c s_c + qN_q s_q + \frac{1}{2}\gamma B N_\gamma s_\gamma")
+        st.markdown(
+            "`B` is the smaller footing dimension in the bearing term, "
+            "`q` is the surcharge at foundation base, and `sc`, `sq`, `sγ` are shape factors."
+        )
+        st.latex(r"q_{ult,net}=q_{ult,gross}-q")
+        st.latex(r"q_{all}=\frac{q_{ult}}{FS}")
+
+    with st.expander("2. Bearing Capacity Factors"):
+        st.latex(r"N_q=e^{\pi \tan\phi}\tan^2\left(45^\circ+\frac{\phi}{2}\right)")
+        st.latex(r"N_c=\frac{N_q-1}{\tan\phi}")
+        st.markdown("For φ = 0 undrained clay:")
+        st.latex(r"N_c=5.7,\quad N_q=1.0,\quad N_\gamma=0.0")
+        st.markdown("Selectable Nγ equations:")
+        st.latex(r"N_\gamma=1.5(N_q-1)\tan\phi \quad \text{Terzaghi approximation}")
+        st.latex(r"N_\gamma=(N_q-1)\tan(1.4\phi) \quad \text{Meyerhof}")
+        st.latex(r"N_\gamma=2(N_q+1)\tan\phi \quad \text{Vesic}")
+
+    with st.expander("3. Shape Factors for Rectangular Footing"):
+        st.latex(r"s_c=1+0.3\frac{B}{L}")
+        st.latex(r"s_q=1.0")
+        st.latex(r"s_\gamma=1-0.2\frac{B}{L}")
+
+    with st.expander("4. Contact Pressure Under Axial Load and Biaxial Moment"):
+        st.latex(r"A=BL")
+        st.latex(r"I_x=\frac{BL^3}{12}")
+        st.latex(r"I_y=\frac{LB^3}{12}")
+        st.latex(r"q(x,y)=\frac{P}{A}+\frac{M_yx}{I_y}+\frac{M_xy}{I_x}")
+        st.markdown(
+            "Pressure varies linearly across the footing for a rigid footing with full contact."
+        )
+
+    with st.expander("5. Eccentricity / Kern Check"):
+        st.latex(r"e_x=\frac{M_y}{P}")
+        st.latex(r"e_y=\frac{M_x}{P}")
+        st.latex(r"|e_x|\leq\frac{B}{6}")
+        st.latex(r"|e_y|\leq\frac{L}{6}")
+        st.markdown(
+            "If eccentricity exceeds the kern limit, part of the footing may theoretically lift off and a full-contact pressure assumption is no longer valid."
+        )
+
+    with st.expander("6. Boussinesq Vertical Stress Used for Subsurface Plots"):
+        st.markdown("For a point load Q applied at the ground/foundation interface:")
+        st.latex(r"\sigma_z=\frac{3Q}{2\pi}\frac{z^3}{R^5}")
+        st.markdown("For distributed pressure, the app numerically integrates over the footing base:")
+        st.latex(r"dQ=q\,dA")
+        st.latex(r"\sigma_z=\iint \frac{3\,q\,z^3}{2\pi R^5}\,dA")
+        st.markdown(
+            "This is used only for the subsurface stress visualization, not for ultimate bearing capacity."
+        )
+
+    with st.expander("7. Limitations"):
+        st.markdown(
+            """
+            This app is for preliminary design and educational use. A complete foundation design should also include:
+            - total and differential settlement
+            - sliding
+            - overturning
+            - structural flexure
+            - one-way shear and punching shear
+            - code-required load combinations
+            - frost, expansive soil, drainage, and construction considerations
+            """
+        )
 
 
 # ============================================================
-# Formula Reference Section
+# Export
 # ============================================================
 st.divider()
-st.header("Formula Reference")
+st.subheader("Export Summary")
 
-with st.expander("1. Terzaghi Bearing Capacity Equation", expanded=True):
-    st.latex(r"q_{ult,gross}=cN_c s_c + qN_q s_q + \frac{1}{2}\gamma B N_\gamma s_\gamma")
-    st.markdown(
-        "Where `B` is the smaller footing dimension for the bearing capacity term, "
-        "`q = γDf` is the effective overburden surcharge at the foundation base, "
-        "and `sc`, `sq`, and `sγ` are shape factors."
-    )
-    st.latex(r"q_{ult,net}=q_{ult,gross}-q")
-    st.latex(r"q_{all}=\frac{q_{ult}}{FS}")
-
-with st.expander("2. Bearing Capacity Factors"):
-    st.latex(r"N_q=e^{\pi \tan\phi}\tan^2\left(45^\circ+\frac{\phi}{2}\right)")
-    st.latex(r"N_c=\frac{N_q-1}{\tan\phi}")
-    st.markdown("For φ = 0 undrained clay, this app uses:")
-    st.latex(r"N_c=5.7,\quad N_q=1.0,\quad N_\gamma=0.0")
-    st.markdown("Selectable Nγ options:")
-    st.latex(r"N_\gamma=1.5(N_q-1)\tan\phi\quad\text{Terzaghi approximation}")
-    st.latex(r"N_\gamma=(N_q-1)\tan(1.4\phi)\quad\text{Meyerhof}")
-    st.latex(r"N_\gamma=2(N_q+1)\tan\phi\quad\text{Vesic}")
-
-with st.expander("3. Rectangular Footing Shape Factors"):
-    st.markdown("For rectangular footing with B ≤ L:")
-    st.latex(r"s_c=1+0.3\frac{B}{L}")
-    st.latex(r"s_q=1.0")
-    st.latex(r"s_\gamma=1-0.2\frac{B}{L}")
-
-with st.expander("4. Contact Pressure Under Axial Load and Biaxial Moment"):
-    st.markdown("Coordinate convention: x is along footing width B, y is along footing length L.")
-    st.latex(r"A=BL")
-    st.latex(r"I_x=\frac{BL^3}{12}")
-    st.latex(r"I_y=\frac{LB^3}{12}")
-    st.latex(r"q(x,y)=\frac{P}{A}+\frac{M_yx}{I_y}+\frac{M_xy}{I_x}")
-    st.markdown("Maximum and minimum pressures occur at footing corners for full-contact linear pressure distribution.")
-
-with st.expander("5. Eccentricity and Kern Check"):
-    st.latex(r"e_x=\frac{M_y}{P}")
-    st.latex(r"e_y=\frac{M_x}{P}")
-    st.latex(r"|e_x|\leq\frac{B}{6}")
-    st.latex(r"|e_y|\leq\frac{L}{6}")
-    st.markdown(
-        "If eccentricity exceeds the kern limit, part of the footing may lose contact with the soil. "
-        "A partial-contact analysis is then required."
-    )
-
-with st.expander("6. Groundwater Correction Used in This App"):
-    st.markdown(
-        "For the γBNγ term, the app applies a simplified groundwater correction:"
-    )
-    st.markdown(
-        "- Water table below Df + B: use moist γ.\n"
-        "- Water table at/above foundation base: use submerged γ = γsat − γw.\n"
-        "- Water table between Df and Df + B: interpolate between moist and submerged γ."
-    )
-    st.latex(r"\gamma' = \gamma_{sat}-\gamma_w")
-
-with st.expander("7. Important Design Limitations"):
-    st.markdown(
-        "This app checks bearing capacity only. A complete spread footing design should also evaluate:\n\n"
-        "- Total and differential settlement\n"
-        "- Sliding resistance\n"
-        "- Overturning stability\n"
-        "- Punching shear and one-way shear\n"
-        "- Flexural reinforcement design\n"
-        "- Minimum embedment, frost depth, expansive soil effects, scour, and drainage\n"
-        "- Load combinations and strength/serviceability requirements from the applicable building code"
-    )
-
-
-# ============================================================
-# Downloadable Results
-# ============================================================
-st.divider()
-st.subheader("Export Calculation Summary")
-
-export_df = pd.DataFrame(
-    {
-        "Item": [
-            "P (kips)",
-            "Mx (kip-ft)",
-            "My (kip-ft)",
-            "B (ft)",
-            "L (ft)",
-            "Df (ft)",
-            "c (psf)",
-            "phi (deg)",
-            "gamma moist (pcf)",
-            "gamma sat (pcf)",
-            "water table depth (ft)",
-            "FS target",
-            "q avg gross (ksf)",
-            "q max gross (ksf)",
-            "q min gross (ksf)",
-            "q surcharge (ksf)",
-            "qult gross (ksf)",
-            "qult net (ksf)",
-            "qall gross (ksf)",
-            "qall net (ksf)",
-            "actual FS based on selected comparison",
-            "status",
-        ],
-        "Value": [
-            P_kips,
-            Mx_kipft,
-            My_kipft,
-            B_ft,
-            L_ft,
-            Df_ft,
-            c_psf,
-            phi_deg,
-            gamma_moist_pcf,
-            gamma_sat_pcf,
-            water_table_depth_ft,
-            fs_target,
-            pr.q_avg_ksf,
-            pr.q_max_ksf,
-            pr.q_min_ksf,
-            bc.surcharge_q_ksf,
-            bc.qult_gross_ksf,
-            bc.qult_net_ksf,
-            bc.qall_gross_ksf,
-            bc.qall_net_ksf,
-            fs_actual,
-            status_title,
-        ],
-    }
-)
+export_df = pd.DataFrame({
+    "Item": [
+        "P (kips)",
+        "Mx (kip-ft)",
+        "My (kip-ft)",
+        "B (ft)",
+        "L (ft)",
+        "Df (ft)",
+        "c (psf)",
+        "phi (deg)",
+        "gamma moist (pcf)",
+        "gamma sat (pcf)",
+        "water table depth (ft)",
+        "FS target",
+        "q_avg base (ksf)",
+        "q_max base (ksf)",
+        "q_min base (ksf)",
+        "surcharge q (ksf)",
+        "qult gross (ksf)",
+        "qult net (ksf)",
+        "qall gross (ksf)",
+        "qall net (ksf)",
+        "actual FS",
+        "status",
+    ],
+    "Value": [
+        P_kips,
+        Mx_kipft,
+        My_kipft,
+        B_ft,
+        L_ft,
+        Df_ft,
+        c_psf,
+        phi_deg,
+        gamma_moist_pcf,
+        gamma_sat_pcf,
+        water_table_depth_ft,
+        fs_target,
+        pr.q_avg_ksf,
+        pr.q_max_ksf,
+        pr.q_min_ksf,
+        bc.surcharge_q_ksf,
+        bc.qult_gross_ksf,
+        bc.qult_net_ksf,
+        bc.qall_gross_ksf,
+        bc.qall_net_ksf,
+        fs_actual,
+        status_title,
+    ]
+})
 
 csv_bytes = export_df.to_csv(index=False).encode("utf-8")
 st.download_button(
