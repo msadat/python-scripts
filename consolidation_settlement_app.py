@@ -778,143 +778,284 @@ of **Cv**.
 
 st.header("Formula Reference")
 
-with st.expander("Primary Consolidation Settlement Formulas", expanded=True):
+with st.expander("1. Primary Consolidation Settlement", expanded=True):
+
+    st.subheader("Normally Consolidated Clay")
+
+    st.write("For normally consolidated clay, the ultimate primary consolidation settlement is:")
+
+    st.latex(
+        r"""
+        S_c =
+        \frac{H}{1 + e_0}
+        C_c
+        \log_{10}
+        \left(
+        \frac{\sigma'_{v0} + \Delta \sigma_v}{\sigma'_{v0}}
+        \right)
+        """
+    )
 
     st.markdown(
-        r"""
-### Normally Consolidated Clay
-
-\[
-S_c = \frac{H}{1 + e_0} C_c \log_{10}
-\left(
-\frac{\sigma'_{v0} + \Delta \sigma_v}{\sigma'_{v0}}
-\right)
-\]
-
+        """
 Where:
 
-- \( S_c \) = primary consolidation settlement  
-- \( H \) = thickness of compressible clay layer  
-- \( e_0 \) = initial void ratio  
-- \( C_c \) = compression index  
-- \( \sigma'_{v0} \) = initial vertical effective stress  
-- \( \Delta \sigma_v \) = increase in vertical stress  
-
----
-
-### Overconsolidated Clay
-
-If final stress is less than or equal to preconsolidation pressure:
-
-\[
-S_c = \frac{H}{1 + e_0} C_r \log_{10}
-\left(
-\frac{\sigma'_{vf}}{\sigma'_{v0}}
-\right)
-\]
-
-If final stress exceeds preconsolidation pressure:
-
-\[
-S_c =
-\frac{H}{1 + e_0} C_r \log_{10}
-\left(
-\frac{\sigma'_p}{\sigma'_{v0}}
-\right)
-+
-\frac{H}{1 + e_0} C_c \log_{10}
-\left(
-\frac{\sigma'_{vf}}{\sigma'_p}
-\right)
-\]
-
-Where:
-
-\[
-\sigma'_{vf} = \sigma'_{v0} + \Delta \sigma_v
-\]
-
-- \( C_r \) = recompression index  
-- \( \sigma'_p \) = preconsolidation pressure  
+| Symbol | Description |
+|---|---|
+| \( S_c \) | Ultimate primary consolidation settlement |
+| \( H \) | Thickness of compressible clay layer |
+| \( e_0 \) | Initial void ratio |
+| \( C_c \) | Compression index |
+| \( \\sigma'_{v0} \) | Initial vertical effective stress |
+| \( \\Delta \\sigma_v \) | Increase in vertical stress |
 """
     )
 
-with st.expander("Time Rate of Consolidation Formulas", expanded=True):
+    st.divider()
+
+    st.subheader("Overconsolidated Clay")
+
+    st.write("First calculate the final vertical effective stress:")
+
+    st.latex(
+        r"""
+        \sigma'_{vf} =
+        \sigma'_{v0} + \Delta \sigma_v
+        """
+    )
+
+    st.write("If the final effective stress does not exceed the preconsolidation pressure:")
+
+    st.latex(
+        r"""
+        \sigma'_{vf} \leq \sigma'_p
+        """
+    )
+
+    st.latex(
+        r"""
+        S_c =
+        \frac{H}{1 + e_0}
+        C_r
+        \log_{10}
+        \left(
+        \frac{\sigma'_{vf}}{\sigma'_{v0}}
+        \right)
+        """
+    )
+
+    st.write("If the final effective stress exceeds the preconsolidation pressure:")
+
+    st.latex(
+        r"""
+        \sigma'_{vf} > \sigma'_p
+        """
+    )
+
+    st.latex(
+        r"""
+        S_c =
+        \frac{H}{1 + e_0}
+        C_r
+        \log_{10}
+        \left(
+        \frac{\sigma'_p}{\sigma'_{v0}}
+        \right)
+        +
+        \frac{H}{1 + e_0}
+        C_c
+        \log_{10}
+        \left(
+        \frac{\sigma'_{vf}}{\sigma'_p}
+        \right)
+        """
+    )
 
     st.markdown(
-        r"""
-### Dimensionless Time Factor
-
-\[
-T_v = \frac{C_v t}{H_{dr}^2}
-\]
-
-Solving for time:
-
-\[
-t = \frac{T_v H_{dr}^2}{C_v}
-\]
-
+        """
 Where:
 
-- \( T_v \) = dimensionless time factor  
-- \( C_v \) = coefficient of consolidation  
-- \( t \) = elapsed time  
-- \( H_{dr} \) = maximum drainage path length  
-
----
-
-### Drainage Path
-
-For single drainage:
-
-\[
-H_{dr} = H
-\]
-
-For double drainage:
-
-\[
-H_{dr} = \frac{H}{2}
-\]
-
----
-
-### Average Degree of Consolidation
-
-The app uses the Fourier series solution:
-
-\[
-U = 1 -
-\sum_{m=0}^{\infty}
-\frac{8}{\pi^2(2m+1)^2}
-\exp
-\left[
--\frac{(2m+1)^2 \pi^2 T_v}{4}
-\right]
-\]
-
-Where:
-
-- \( U \) = average degree of consolidation as a decimal  
-- \( T_v \) = time factor  
-
----
-
-### Settlement at Time t
-
-\[
-S(t) = U(t) S_c
-\]
-
-Where:
-
-- \( S(t) \) = settlement at time \( t \)  
-- \( U(t) \) = average degree of consolidation at time \( t \)  
-- \( S_c \) = ultimate primary consolidation settlement  
+| Symbol | Description |
+|---|---|
+| \( C_r \) | Recompression index |
+| \( \\sigma'_p \) | Preconsolidation pressure |
+| \( \\sigma'_{vf} \) | Final vertical effective stress |
 """
     )
 
+
+with st.expander("2. Time Rate of Consolidation", expanded=True):
+
+    st.subheader("Dimensionless Time Factor")
+
+    st.write("The time rate of consolidation is calculated using the dimensionless time factor:")
+
+    st.latex(
+        r"""
+        T_v =
+        \frac{C_v t}{H_{dr}^{2}}
+        """
+    )
+
+    st.write("Solving for time:")
+
+    st.latex(
+        r"""
+        t =
+        \frac{T_v H_{dr}^{2}}{C_v}
+        """
+    )
+
+    st.markdown(
+        """
+Where:
+
+| Symbol | Description |
+|---|---|
+| \( T_v \) | Dimensionless time factor |
+| \( C_v \) | Coefficient of consolidation |
+| \( t \) | Elapsed time |
+| \( H_{dr} \) | Maximum drainage path length |
+"""
+    )
+
+    st.divider()
+
+    st.subheader("Drainage Path")
+
+    st.write("For single drainage, water drains from only one boundary:")
+
+    st.latex(
+        r"""
+        H_{dr} = H
+        """
+    )
+
+    st.write("For double drainage, water drains from both the top and bottom boundaries:")
+
+    st.latex(
+        r"""
+        H_{dr} =
+        \frac{H}{2}
+        """
+    )
+
+
+with st.expander("3. Average Degree of Consolidation", expanded=True):
+
+    st.subheader("Fourier Series Solution")
+
+    st.write(
+        """
+The app uses the classical Fourier series solution for average degree of consolidation.
+This is more accurate than using only simplified chart-based approximations.
+"""
+    )
+
+    st.latex(
+        r"""
+        U =
+        1 -
+        \sum_{m=0}^{\infty}
+        \frac{8}{\pi^2(2m+1)^2}
+        \exp
+        \left[
+        -\frac{(2m+1)^2 \pi^2 T_v}{4}
+        \right]
+        """
+    )
+
+    st.markdown(
+        """
+Where:
+
+| Symbol | Description |
+|---|---|
+| \( U \) | Average degree of consolidation as a decimal |
+| \( m \) | Series counter |
+| \( T_v \) | Dimensionless time factor |
+| \( \\pi \) | Mathematical constant pi |
+"""
+    )
+
+    st.divider()
+
+    st.subheader("Approximate Time Factor Relationship")
+
+    st.write("For quick checks, the following commonly used approximations are also valid:")
+
+    st.write("For average degree of consolidation less than or equal to approximately 60%:")
+
+    st.latex(
+        r"""
+        T_v =
+        \frac{\pi}{4} U^2
+        """
+    )
+
+    st.write("For average degree of consolidation greater than approximately 60%:")
+
+    st.latex(
+        r"""
+        T_v =
+        -0.933 \log_{10}(1-U) - 0.085
+        """
+    )
+
+
+with st.expander("4. Settlement at Any Time", expanded=True):
+
+    st.subheader("Time-Dependent Settlement")
+
+    st.write("Settlement at any time is calculated as:")
+
+    st.latex(
+        r"""
+        S(t) =
+        U(t) S_c
+        """
+    )
+
+    st.markdown(
+        """
+Where:
+
+| Symbol | Description |
+|---|---|
+| \( S(t) \) | Settlement at time \( t \) |
+| \( U(t) \) | Average degree of consolidation at time \( t \) |
+| \( S_c \) | Ultimate primary consolidation settlement |
+"""
+    )
+
+    st.info(
+        """
+For example, if the ultimate primary consolidation settlement is 4 inches and the average degree
+of consolidation is 50%, then the settlement at that time is:
+
+S(t) = 0.50 × 4 in = 2 in
+"""
+    )
+
+
+with st.expander("5. Units Used in the Program", expanded=True):
+
+    st.markdown(
+        """
+The program internally uses the following consistent units:
+
+| Parameter | Internal Unit |
+|---|---|
+| Layer thickness, \( H \) | ft |
+| Drainage path, \( H_{dr} \) | ft |
+| Stress, \( \\sigma'_{v0}, \\Delta \\sigma_v, \\sigma'_p \) | psf |
+| Coefficient of consolidation, \( C_v \) | ft²/day |
+| Time, \( t \) | days |
+| Settlement, \( S_c \) | ft, then converted to inches |
+
+The app converts user-selected \( C_v \) units into **ft²/day** before performing the time-rate calculation.
+"""
+    )
 
 # ============================================================
 # Footer
